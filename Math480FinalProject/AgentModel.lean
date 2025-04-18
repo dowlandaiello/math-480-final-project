@@ -120,6 +120,7 @@ def poll_proposer {α : Type} {n : ℕ} (msgs : MsgQueue α n) (p : Proposer α 
 structure System (α : Type) (n : ℕ) where
   agents : Vector (Agent α n) n
 
+-- Initializes acceptors and proposers, combines them in a vector of the inductive type Agent
 def mk_system {α : Type} (n_proposers : ℕ) (n_acceptors : ℕ) (proposer_configs : Vector ((List (Fin $ n_proposers + n_acceptors)) × Nat × α) n_proposers) (h2 : n_proposers > 0) (h3 : n_acceptors > 0) : System α (n_proposers + n_acceptors) :=
   let acceptors : Vector (Acceptor α (n_proposers + n_acceptors)) n_acceptors := Vector.finRange n_acceptors
       |> Vector.map
@@ -148,6 +149,9 @@ def mk_system {α : Type} (n_proposers : ℕ) (n_acceptors : ℕ) (proposer_conf
 
 -- Sends all messages to all actors, returning newly produced messages
 -- and the system itself
+--
+-- In practice, this should be folded in some accumulator, until
+-- no new messages are produced. Then learn can be attempted
 def poll_system {α : Type} {n : ℕ} (msgs : List $ AddressedMessage α n) (s : System α n) (h1 : n > 1) : (List $ AddressedMessage α n) × System α n :=
   msgs.foldl (λ(msgs, s) m =>
       let (new_agent, new_msgs) := match s.agents[m.recip] with
@@ -165,6 +169,8 @@ def poll_system {α : Type} {n : ℕ} (msgs : List $ AddressedMessage α n) (s :
      )
     ⟨List.nil, s⟩
 
+-- Given some quorum, attempt to get the chosen value from the quorum
+-- Potentially nothing
 def try_learn {α : Type} {n : ℕ} (quorum : List (Fin n)) : System α n → Option α
   | sys =>
     let quorum_vals := quorum.map λid =>
