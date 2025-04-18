@@ -165,4 +165,11 @@ def poll_system {α : Type} {n : ℕ} (msgs : List $ AddressedMessage α n) (s :
      )
     ⟨List.nil, s⟩
 
+def try_learn {α : Type} {n : ℕ} (quorum : List (Fin n)) : System α n → Option α
+  | sys =>
+    let quorum_vals := quorum.map λid =>
+       match sys.agents[id] with
+         | Agent.proposer _ => none
+         | Agent.acceptor a => a.val
 
+    (quorum_vals.filterMap id)[0]?
