@@ -39,12 +39,11 @@ abbrev MsgQueue (α : Type) (n : ℕ) := List $ AddressedMessage α n
  -- Once n_promise ≥ quorum size,
  -- it sends out an accept message to the acceptors with the chosen
  -- n, and value to adopt
-structure Proposer (α : Type) (n : ℕ) (quorum : ℕ) (h1 : quorum ≥ n / 2) where
+structure Proposer (α : Type) (n : ℕ) where
   acceptors  : List $ Fin n
   proposal   : α
   n_promises : Fin n
   proposed_n : ℕ
-  queue      : MsgQueue α n
   id         : Fin n
 
 -- Acceptors don't know about nodes, they just receive messages,
@@ -57,10 +56,13 @@ structure Proposer (α : Type) (n : ℕ) (quorum : ℕ) (h1 : quorum ≥ n / 2) 
 -- We can change this to Option α so that they have no init value
 -- and learn it through consensus, instead of just updating it through consensus
 structure Acceptor (α : Type) (n : ℕ) where
-  queue      : MsgQueue α n
   max_msg_id : ℕ
   id         : Fin n
   val        : Option α
+
+inductive Agent (α : Type) (n : ℕ) where
+  | proposer : (Proposer α n) → Agent α n
+  | acceptor : (Acceptor α n) → Agent α n
 
 def process (α : Type) (n : ℕ) (a : Acceptor α n) (x : AddressedMessage α n) : Acceptor α n × (Option $ AddressedMessage α n) :=
   match x.cts with
@@ -85,14 +87,14 @@ def process (α : Type) (n : ℕ) (a : Acceptor α n) (x : AddressedMessage α n
 
 -- Just continuously processes messages and updates the acceptor
 -- We can probably clean this up tbh
-def advance (α : Type) (n : ℕ) (a : Acceptor α n) : Acceptor α n × (MsgQueue α n) :=
+def poll_acceptor (α : Type) (n : ℕ) (msgs : MsgQueue α n) (a : Acceptor α n) : Acceptor α n × (MsgQueue α n) :=
   List.foldl (λ⟨a, ret_msgs⟩ msg => match process α n a msg with
     | (a, none) => ⟨a, ret_msgs⟩
     | (a, some x) => ⟨a, ret_msgs ++ [x]⟩
-  ) ⟨a, List.nil⟩ a.queue
+  ) ⟨a, List.nil⟩ msgs
 
 -- Process / advance in a single function for the proposer
-def advance_proposer {α : Type} {n quorum : ℕ} (h1 : n > 1) (h2 : quorum ≥ n / 2) (p : Proposer α n quorum h2) : Proposer α n quorum h2 × MsgQueue α n :=
+def poll_proposer {α : Type} {n : ℕ} (h1 : n > 1) (msgs : MsgQueue α n) (p : Proposer α n) : Proposer α n × MsgQueue α n :=
   List.foldl (λ⟨p, ret_msgs⟩ msg => match msg.cts with
     -- Prepare does nothing for proposer
     | Message.prepare _ => ⟨p, ret_msgs⟩
@@ -113,34 +115,38 @@ def advance_proposer {α : Type} {n quorum : ℕ} (h1 : n > 1) (h2 : quorum ≥ 
       else
         ⟨p, ret_msgs⟩
      | Message.accept _ _ => ⟨p, ret_msgs⟩
-  ) ⟨p, List.nil⟩ p.queue
+  ) ⟨p, List.nil⟩ msgs
 
-structure System (α : Type) (np : ℕ) (na : ℕ) (quorum : ℕ) (h1 : quorum ≥ (np + na) / 2) where
-  acceptors : Vector (Acceptor α (np + na)) na
-  proposers : Vector (Proposer α (np + na) quorum h1) np
+structure System (α : Type) (n : ℕ) where
+  agents : Vector (Agent α n) n
 
-def send {α : Type} (n : ℕ) : AddressedMessage α n → MsgQueue α n → MsgQueue α n := (. :: .)
-
-def mk_system {α : Type} (n_proposers : ℕ) (n_acceptors : ℕ) (quorums_for_proposer : Vector (List (Fin $ n_proposers + n_acceptors)) n_proposers) (chosen_n_per_proposer : Vector ℕ n_proposers) (proposal : α) (h1 : quorum ≥ (n_proposers + n_acceptors) / 2) (h2 : n_proposers > 0) (h3 : n_acceptors > 0) : System α n_proposers n_acceptors quorum (by simp_all) :=
-  {
-    acceptors := Vector.finRange n_acceptors
+def mk_system {α : Type} (n_proposers : ℕ) (n_acceptors : ℕ) (proposer_configs : Vector ((List (Fin $ n_proposers + n_acceptors)) × Nat × α) n_proposers) (h2 : n_proposers > 0) (h3 : n_acceptors > 0) : System α (n_proposers + n_acceptors) :=
+  let acceptors : Vector (Acceptor α (n_proposers + n_acceptors)) n_acceptors := Vector.finRange n_acceptors
       |> Vector.map
         λ(id : Fin n_acceptors) =>
           {
-            queue := List.nil,
             max_msg_id := 0,
             id := ⟨id, lt_trans (Fin.is_lt id) (by linarith)⟩,
             val := none
           }
-    proposers := Vector.finRange n_proposers
-      |> (Vector.zip . quorums_for_proposer)
-      |> (Vector.zip . chosen_n_per_proposer)
-      |> Vector.map λ(((id : Fin n_proposers), quorum), n) =>
+  let proposers : Vector (Proposer α (n_proposers + n_acceptors)) n_proposers := Vector.finRange n_proposers
+      |> (Vector.zip . proposer_configs)
+      |> Vector.map λ((id : Fin n_proposers), (quorum, n, proposal)) =>
         let id_norm := id + n_acceptors
 
-        ⟨quorum, proposal, ⟨0, by linarith⟩, n, List.nil, ⟨id_norm, by
+        ⟨quorum, proposal, ⟨0, by linarith⟩, n, ⟨id_norm, by
           unfold id_norm
           simp_all
         ⟩⟩
+  {
+    agents := ⟨
+      (acceptors.toArray.map (λa => Agent.acceptor a)) ++ (proposers.toArray.map λp => Agent.proposer p), by
+      simp
+      ring_nf
+    ⟩
   }
 
+-- Sends all messages to all actors, returning newly produced messages
+-- and the system itself
+def poll_system {α : Type} {n : ℕ} (msgs : List $ AddressedMessage α n) (s : System α n) : (List $ AddressedMessage α (np + na)) × System α n :=
+  sorry
