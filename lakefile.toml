@@ -2,6 +2,16 @@ name = "math-480-final-project"
 version = "0.1.0"
 defaultTargets = ["math-480-final-project"]
 
+[[require]]
+name = "mathlib"
+git = "https://github.com/leanprover-community/mathlib4"
+rev = "v4.17.0"
+
+[[require]]
+name = "batteries"
+scope = "leanprover-community"
+rev = "main"
+
 [[lean_lib]]
 name = "Math480FinalProject"
 
