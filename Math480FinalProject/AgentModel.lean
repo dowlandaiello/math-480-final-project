@@ -32,7 +32,6 @@ abbrev MsgQueue (α : Type) (n : ℕ) := List $ AddressedMessage α n
 
 -- Proposers know about a quorum of receptors
 -- the proposer is parameterized by the total number of nodes
- -- and the quorum
  -- The proposer also has a current value it is attempting to
  -- get the network to accept (proposal)
  -- In each round, the proposer keeps track of the number of promises
@@ -41,7 +40,7 @@ abbrev MsgQueue (α : Type) (n : ℕ) := List $ AddressedMessage α n
  -- it sends out an accept message to the acceptors with the chosen
  -- n, and value to adopt
 structure Proposer (α : Type) (n : ℕ) (quorum : ℕ) (h1 : quorum ≥ n / 2) where
-  acceptors  : Vector (Fin n) quorum
+  acceptors  : List $ Fin n
   proposal   : α
   n_promises : Fin n
   proposed_n : ℕ
@@ -105,7 +104,7 @@ def advance_proposer {α : Type} {n quorum : ℕ} (h1 : n > 1) (h2 : quorum ≥ 
         let p' := { p with n_promises := p.n_promises + ⟨1, h1⟩ }
 
         -- -- If the new count is at least the quorum size, adopt the value by sending out accept messages
-        if p'.n_promises.val ≥ p'.acceptors.size then
+        if p'.n_promises.val ≥ p'.acceptors.length then
           -- Make accept messages for all acceptors in the quorum
           ⟨p', ret_msgs ++ p'.acceptors.toArray.toList.map λx => { cts := Message.accept p'.proposal accepted, sender := p.id, recip := x}⟩
         else
@@ -118,13 +117,30 @@ def advance_proposer {α : Type} {n quorum : ℕ} (h1 : n > 1) (h2 : quorum ≥ 
 
 structure System (α : Type) (np : ℕ) (na : ℕ) (quorum : ℕ) (h1 : quorum ≥ (np + na) / 2) where
   acceptors : Vector (Acceptor α (np + na)) na
-  proposers : Vector (Proposer α (np + na) quorum h1) na
+  proposers : Vector (Proposer α (np + na) quorum h1) np
 
 def send {α : Type} (n : ℕ) : AddressedMessage α n → MsgQueue α n → MsgQueue α n := (. :: .)
 
-def mk_system {α : Type} (n_proposers : ℕ) (n_acceptors : ℕ) (quorum : ℕ) (quorums_for_proposers : List $ List (Fin $ n_proposers + n_acceptors)) (h1 : quorum ≥ (np + na) / 2) : System :=
+def mk_system {α : Type} (n_proposers : ℕ) (n_acceptors : ℕ) (quorums_for_proposer : Vector (List (Fin $ n_proposers + n_acceptors)) n_proposers) (chosen_n_per_proposer : Vector ℕ n_proposers) (proposal : α) (h1 : quorum ≥ (n_proposers + n_acceptors) / 2) (h2 : n_proposers > 0) (h3 : n_acceptors > 0) : System α n_proposers n_acceptors quorum (by simp_all) :=
   {
-    acceptors := List.range n_acceptors |> List.map λid => ⟨List.nil, 0, id, none⟩,
-    proposers := List.range n_proposers |> List.zip quorums_for_proposers |> List.map λ(id, quorum) =>
-      let id_norm := id + n_acceptors
-      ⟨quorum, 
+    acceptors := Vector.finRange n_acceptors
+      |> Vector.map
+        λ(id : Fin n_acceptors) =>
+          {
+            queue := List.nil,
+            max_msg_id := 0,
+            id := ⟨id, lt_trans (Fin.is_lt id) (by linarith)⟩,
+            val := none
+          }
+    proposers := Vector.finRange n_proposers
+      |> (Vector.zip . quorums_for_proposer)
+      |> (Vector.zip . chosen_n_per_proposer)
+      |> Vector.map λ(((id : Fin n_proposers), quorum), n) =>
+        let id_norm := id + n_acceptors
+
+        ⟨quorum, proposal, ⟨0, by linarith⟩, n, List.nil, ⟨id_norm, by
+          unfold id_norm
+          simp_all
+        ⟩⟩
+  }
+
