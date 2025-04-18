@@ -87,14 +87,14 @@ def process (α : Type) (n : ℕ) (a : Acceptor α n) (x : AddressedMessage α n
 
 -- Just continuously processes messages and updates the acceptor
 -- We can probably clean this up tbh
-def poll_acceptor (α : Type) (n : ℕ) (msgs : MsgQueue α n) (a : Acceptor α n) : Acceptor α n × (MsgQueue α n) :=
+def poll_acceptor {α : Type} {n : ℕ} (msgs : MsgQueue α n) (a : Acceptor α n) : Acceptor α n × (MsgQueue α n) :=
   List.foldl (λ⟨a, ret_msgs⟩ msg => match process α n a msg with
     | (a, none) => ⟨a, ret_msgs⟩
     | (a, some x) => ⟨a, ret_msgs ++ [x]⟩
   ) ⟨a, List.nil⟩ msgs
 
 -- Process / advance in a single function for the proposer
-def poll_proposer {α : Type} {n : ℕ} (h1 : n > 1) (msgs : MsgQueue α n) (p : Proposer α n) : Proposer α n × MsgQueue α n :=
+def poll_proposer {α : Type} {n : ℕ} (msgs : MsgQueue α n) (p : Proposer α n) (h1 : n > 1) : Proposer α n × MsgQueue α n :=
   List.foldl (λ⟨p, ret_msgs⟩ msg => match msg.cts with
     -- Prepare does nothing for proposer
     | Message.prepare _ => ⟨p, ret_msgs⟩
@@ -148,5 +148,21 @@ def mk_system {α : Type} (n_proposers : ℕ) (n_acceptors : ℕ) (proposer_conf
 
 -- Sends all messages to all actors, returning newly produced messages
 -- and the system itself
-def poll_system {α : Type} {n : ℕ} (msgs : List $ AddressedMessage α n) (s : System α n) : (List $ AddressedMessage α (np + na)) × System α n :=
-  sorry
+def poll_system {α : Type} {n : ℕ} (msgs : List $ AddressedMessage α n) (s : System α n) (h1 : n > 1) : (List $ AddressedMessage α n) × System α n :=
+  msgs.foldl (λ(msgs, s) m =>
+      let (new_agent, new_msgs) := match s.agents[m.recip] with
+      | Agent.acceptor a =>
+        poll_acceptor [m] a
+          |> Prod.map
+            (λa => Agent.acceptor a)
+            id
+      | Agent.proposer p =>
+        poll_proposer [m] p h1
+          |> Prod.map
+            (λa => Agent.proposer a)
+            id
+      ⟨msgs ++ new_msgs, { s with agents := s.agents.set m.recip new_agent }⟩
+     )
+    ⟨List.nil, s⟩
+
+
