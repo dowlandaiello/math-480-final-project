@@ -13,7 +13,6 @@ import Batteries.Data.HashMap.Basic
 -- - promise: this is sent by acceptors saying they will not accept a number lower than n
 -- - accept: this is sent by the proposer to all acceptors with the new value
 -- that the acceptors should accept, with their chosen value of n
--- if the value matches the acceptors' highest value of n, then they adopt the value α
 inductive Message (α : Type) where
   | prepare               : ℕ → Message α
   | promise_prev_accepted : ℕ → ℕ → Message α
@@ -35,19 +34,19 @@ abbrev MsgQueue (α : Type) (n : ℕ) := List $ AddressedMessage α n
 -- the proposer is parameterized by the total number of nodes
  -- and the quorum
  -- The proposer also has a current value it is attempting to
- -- get the network to accept
+ -- get the network to accept (proposal)
  -- In each round, the proposer keeps track of the number of promises
- -- per value of n.
- -- Once one of the n's reaches a sum ≥ quorum size,
- -- it sends out an accept message to the acceptor with the chosen
+ -- per its chosen n promise
+ -- Once n_promise ≥ quorum size,
+ -- it sends out an accept message to the acceptors with the chosen
  -- n, and value to adopt
 structure Proposer (α : Type) (n : ℕ) (quorum : ℕ) (h1 : quorum ≥ n / 2) where
-  acceptors        : Vector (Fin n) quorum
-  proposal         : α
-  value            : α
-  n_round_promises : Batteries.HashMap ℕ (Fin n)
-  queue            : MsgQueue α n
-  id               : Fin n
+  acceptors  : Vector (Fin n) quorum
+  proposal   : α
+  n_promises : Fin n
+  proposed_n : ℕ
+  queue      : MsgQueue α n
+  id         : Fin n
 
 -- Acceptors don't know about nodes, they just receive messages,
 -- and continuously update their maximum received value of n in a "prepare"
@@ -62,7 +61,7 @@ structure Acceptor (α : Type) (n : ℕ) where
   queue      : MsgQueue α n
   max_msg_id : ℕ
   id         : Fin n
-  val        : α
+  val        : Option α
 
 def process (α : Type) (n : ℕ) (a : Acceptor α n) (x : AddressedMessage α n) : Acceptor α n × (Option $ AddressedMessage α n) :=
   match x.cts with
@@ -81,40 +80,39 @@ def process (α : Type) (n : ℕ) (a : Acceptor α n) (x : AddressedMessage α n
     -- Otherwise, do nothing
     | Message.accept val n =>
       if a.max_msg_id == n then
-        ⟨{a with val := val}, none⟩
+        ⟨{a with val := pure val}, none⟩
       else
         ⟨a, none⟩
 
 -- Just continuously processes messages and updates the acceptor
 -- We can probably clean this up tbh
 def advance (α : Type) (n : ℕ) (a : Acceptor α n) : Acceptor α n × (MsgQueue α n) :=
-  List.foldl (fun ⟨a, ret_msgs⟩ msg => match process α n a msg with
+  List.foldl (λ⟨a, ret_msgs⟩ msg => match process α n a msg with
     | (a, none) => ⟨a, ret_msgs⟩
     | (a, some x) => ⟨a, ret_msgs ++ [x]⟩
   ) ⟨a, List.nil⟩ a.queue
 
 -- Process / advance in a single function for the proposer
 def advance_proposer {α : Type} {n quorum : ℕ} (h1 : n > 1) (h2 : quorum ≥ n / 2) (p : Proposer α n quorum h2) : Proposer α n quorum h2 × MsgQueue α n :=
-  List.foldl (fun ⟨p, ret_msgs⟩ msg => match msg.cts with
+  List.foldl (λ⟨p, ret_msgs⟩ msg => match msg.cts with
     -- Prepare does nothing for proposer
     | Message.prepare _ => ⟨p, ret_msgs⟩
-    -- When we receive a promise, update the count of the value of n for that promise
+    -- When we receive a promise that is = our n, update the count of the value of n for that promise
     | Message.promise_prev_accepted _ accepted =>
-      -- This is kind of overly verbose
-      -- This is basically counts[n] += 1 where n is the promised value of n
-      let old_count_n := p.n_round_promises.findD accepted ⟨0, lt_trans zero_lt_one h1⟩
-      let new_count_n := old_count_n + ⟨1, h1⟩
+      if accepted = p.proposed_n then
+        -- This is kind of overly verbose
+        -- This is basically counts[n] += 1 where n is the promised value of n
+        let p' := { p with n_promises := p.n_promises + ⟨1, h1⟩ }
 
-      let p' := { p with n_round_promises := p.n_round_promises.insert accepted new_count_n }
-      -- -- If the new count is at least the quorum size, adopt the value by sending out accept messages
-      if new_count_n.val ≥ p'.acceptors.size then
-        let p'' : Proposer α n quorum h2 := { p' with value := p'.proposal }
-
-        -- Make accept messages for all acceptors in the quorum
-        ⟨p', ret_msgs ++ p''.acceptors.toArray.toList.map fun x => { cts := Message.accept p''.value accepted, sender := p.id, recip := x}⟩
+        -- -- If the new count is at least the quorum size, adopt the value by sending out accept messages
+        if p'.n_promises.val ≥ p'.acceptors.size then
+          -- Make accept messages for all acceptors in the quorum
+          ⟨p', ret_msgs ++ p'.acceptors.toArray.toList.map λx => { cts := Message.accept p'.proposal accepted, sender := p.id, recip := x}⟩
+        else
+          -- Do nothing, but update n promises
+          ⟨p', ret_msgs⟩
       else
-        -- Do nothing
-        ⟨p', ret_msgs⟩
+        ⟨p, ret_msgs⟩
      | Message.accept _ _ => ⟨p, ret_msgs⟩
   ) ⟨p, List.nil⟩ p.queue
 
@@ -124,5 +122,9 @@ structure System (α : Type) (np : ℕ) (na : ℕ) (quorum : ℕ) (h1 : quorum �
 
 def send {α : Type} (n : ℕ) : AddressedMessage α n → MsgQueue α n → MsgQueue α n := (. :: .)
 
-def learn {α : Type} (n : ℕ) (acceptors : List $ Acceptor α n) (h1 : acceptors.length ≥ 1): α := (acceptors.get ⟨0, by linarith⟩).val
-
+def mk_system {α : Type} (n_proposers : ℕ) (n_acceptors : ℕ) (quorum : ℕ) (quorums_for_proposers : List $ List (Fin $ n_proposers + n_acceptors)) (h1 : quorum ≥ (np + na) / 2) : System :=
+  {
+    acceptors := List.range n_acceptors |> List.map λid => ⟨List.nil, 0, id, none⟩,
+    proposers := List.range n_proposers |> List.zip quorums_for_proposers |> List.map λ(id, quorum) =>
+      let id_norm := id + n_acceptors
+      ⟨quorum, 
