@@ -1,0 +1,10 @@
+name = "math-480-final-project"
+version = "0.1.0"
+defaultTargets = ["math-480-final-project"]
+
+[[lean_lib]]
+name = "Math480FinalProject"
+
+[[lean_exe]]
+name = "math-480-final-project"
+root = "Main"
