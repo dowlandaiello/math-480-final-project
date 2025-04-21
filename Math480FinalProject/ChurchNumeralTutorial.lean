@@ -22,12 +22,17 @@ def zero {α : Type} : (α → α) → α → α := fun _f g => g
 def one  {α : Type} : (α → α) → α → α := fun f g => f g
 def two  {α : Type} : (α → α) → α → α := fun f g => f (f g)
 
+-- Example usage: flipping a boolean eight twice
+#eval two (λb => !b) true
+
 -- You can see that a given number just applies f one more time to the value g
 -- therefore, the successor function (analogous to Nat.succ) should just add another f
 def ChurchNat (α : Type) := (α → α) → α → α
 
 def succ {α : Type} (n : ChurchNat α) : ChurchNat α :=
   fun f g => f (n f g)
+
+#eval (succ two) (λb => !b) true
 
 -- Now, our task is to see if we can prove that our definition of nat
 -- is isomorphic to Nat.
