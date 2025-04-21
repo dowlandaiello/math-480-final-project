@@ -1,6 +1,12 @@
 import Mathlib.Tactic
 import Batteries.Data.HashMap.Basic
 
+-- Resending until received a response
+-- Fix total count per node
+-- All nodes the same value
+-- Send all proposer messages to all nodes
+-- First ID: leader elecction, learn function
+
 -- Using an "agent" / "actor" model to simulate the system
 -- Each agent has an "inbox" where messages can be sent
 -- Each agent also has an "advance" function, which
@@ -40,11 +46,11 @@ abbrev MsgQueue (α : Type) (n : ℕ) := List $ AddressedMessage α n
  -- it sends out an accept message to the acceptors with the chosen
  -- n, and value to adopt
 structure Proposer (α : Type) (n : ℕ) where
-  acceptors  : List $ Fin n
-  proposal   : α
-  n_promises : Fin n
-  proposed_n : ℕ
-  id         : Fin n
+  acceptors           : List $ Fin n
+  proposal            : α
+  n_promises_per_node : Vector (Fin n) n
+  proposed_n          : ℕ
+  id                  : Fin n
 
 -- Acceptors don't know about nodes, they just receive messages,
 -- and continuously update their maximum received value of n in a "prepare"
@@ -106,7 +112,7 @@ def poll_proposer {α : Type} {n : ℕ} (msgs : MsgQueue α n) (p : Proposer α 
         let p' := { p with n_promises := p.n_promises + ⟨1, h1⟩ }
 
         -- -- If the new count is at least the quorum size, adopt the value by sending out accept messages
-        if p'.n_promises.val ≥ p'.acceptors.length then
+        if p'.n_promises.val ≥ p'.acceptors.length / 2 then
           -- Make accept messages for all acceptors in the quorum
           ⟨p', ret_msgs ++ p'.acceptors.toArray.toList.map λx => { cts := Message.accept p'.proposal accepted, sender := p.id, recip := x}⟩
         else
@@ -179,3 +185,4 @@ def try_learn {α : Type} {n : ℕ} (quorum : List (Fin n)) : System α n → Op
          | Agent.acceptor a => a.val
 
     (quorum_vals.filterMap id)[0]?
+
