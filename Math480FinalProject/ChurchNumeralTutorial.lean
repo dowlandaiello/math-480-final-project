@@ -71,3 +71,13 @@ theorem church_iso_nat' {α : Type} : ∀ n, from_church (@to_church α n) = n :
 -- Church numerals aren't the limit.
 -- And what kinds of numbers can we express with the varying implementations?
 -- Can we express more types of numbers with Church encoding vs Set theoretic encoding?
+
+-- Bonus bonus idea: encoding numbers inductively with lists?
+-- 0 = []
+-- 1 = [()]
+-- 2 = [(), ()]
+
+-- Sky's the limit.
+-- End goal could be implementing stuff like Ring, Group, etc. for our types
+-- Or, somehow, making a general implementation of all of these,
+-- granted they are all "the same" as Nat
