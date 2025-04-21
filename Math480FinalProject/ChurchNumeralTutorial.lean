@@ -22,7 +22,7 @@ def zero {α : Type} : (α → α) → α → α := fun _f g => g
 def one  {α : Type} : (α → α) → α → α := fun f g => f g
 def two  {α : Type} : (α → α) → α → α := fun f g => f (f g)
 
--- Example usage: flipping a boolean eight twice
+-- Example usage: flipping a boolean twice
 #eval two (λb => !b) true
 
 -- You can see that a given number just applies f one more time to the value g
