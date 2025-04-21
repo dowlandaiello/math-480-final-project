@@ -64,6 +64,9 @@ theorem church_iso_nat' {α : Type} : ∀ n, from_church (@to_church α n) = n :
 
 -- But, is this strong enough?
 
+-- Other ideas: proving things about the complexity of our number operations
+-- e.g., succ is O(1), addition is O(?) whatever, etc.
+
 -- Bonus project idea: we could try encoding Nat with ordinal sets
 --
 -- 0 := ∅
